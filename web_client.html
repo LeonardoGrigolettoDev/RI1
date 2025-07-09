@@ -1,0 +1,556 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>ESP32-CAM Stream Viewer</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            max-width: 1200px;
+            margin: 0 auto;
+            padding: 20px;
+            background-color: #f5f5f5;
+        }
+        
+        .container {
+            background: white;
+            border-radius: 10px;
+            padding: 20px;
+            box-shadow: 0 2px 10px rgba(0,0,0,0.1);
+        }
+        
+        .header {
+            text-align: center;
+            margin-bottom: 30px;
+        }
+        
+        .controls {
+            display: flex;
+            gap: 10px;
+            margin-bottom: 20px;
+            flex-wrap: wrap;
+            justify-content: center;
+        }
+        
+        button {
+            padding: 10px 20px;
+            border: none;
+            border-radius: 5px;
+            cursor: pointer;
+            font-size: 14px;
+            transition: background-color 0.3s;
+        }
+        
+        .btn-primary {
+            background-color: #007bff;
+            color: white;
+        }
+        
+        .btn-primary:hover {
+            background-color: #0056b3;
+        }
+        
+        .btn-success {
+            background-color: #28a745;
+            color: white;
+        }
+        
+        .btn-success:hover {
+            background-color: #1e7e34;
+        }
+        
+        .btn-danger {
+            background-color: #dc3545;
+            color: white;
+        }
+        
+        .btn-danger:hover {
+            background-color: #c82333;
+        }
+        
+        .btn-warning {
+            background-color: #ffc107;
+            color: #212529;
+        }
+        
+        .btn-warning:hover {
+            background-color: #e0a800;
+        }
+        
+        .stream-container {
+            text-align: center;
+            margin-bottom: 20px;
+        }
+        
+        #streamImage {
+            max-width: 100%;
+            height: auto;
+            border: 2px solid #ddd;
+            border-radius: 5px;
+            background-color: #f8f9fa;
+        }
+        
+        .status {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+            gap: 15px;
+            margin-top: 20px;
+        }
+        
+        .status-item {
+            background: #f8f9fa;
+            padding: 15px;
+            border-radius: 5px;
+            border-left: 4px solid #007bff;
+        }
+        
+        .status-item h4 {
+            margin: 0 0 10px 0;
+            color: #333;
+        }
+        
+        .status-item p {
+            margin: 5px 0;
+            color: #666;
+        }
+        
+        .log {
+            background: #f8f9fa;
+            border: 1px solid #ddd;
+            border-radius: 5px;
+            padding: 15px;
+            height: 200px;
+            overflow-y: auto;
+            font-family: monospace;
+            font-size: 12px;
+            margin-top: 20px;
+        }
+        
+        .connection-status {
+            display: inline-block;
+            padding: 5px 10px;
+            border-radius: 15px;
+            font-size: 12px;
+            font-weight: bold;
+        }
+        
+        .connected {
+            background-color: #d4edda;
+            color: #155724;
+        }
+        
+        .disconnected {
+            background-color: #f8d7da;
+            color: #721c24;
+        }
+        
+        .face-overlay {
+            position: relative;
+            display: inline-block;
+        }
+        
+        .face-box {
+            position: absolute;
+            border: 3px solid #ff0000;
+            background-color: rgba(255, 0, 0, 0.2);
+            pointer-events: none;
+            border-radius: 5px;
+            box-shadow: 0 0 10px rgba(255, 0, 0, 0.5);
+        }
+        
+        .face-info {
+            position: absolute;
+            background-color: rgba(255, 0, 0, 0.9);
+            color: white;
+            padding: 3px 8px;
+            font-size: 12px;
+            font-weight: bold;
+            top: -25px;
+            left: 0;
+            border-radius: 3px;
+            white-space: nowrap;
+        }
+        
+        .face-detection-indicator {
+            position: absolute;
+            top: 10px;
+            right: 10px;
+            background-color: rgba(0, 255, 0, 0.8);
+            color: white;
+            padding: 5px 10px;
+            border-radius: 15px;
+            font-size: 12px;
+            font-weight: bold;
+            display: none;
+        }
+        
+        .face-detection-indicator.active {
+            display: block;
+            animation: pulse 1.5s ease-in-out infinite alternate;
+        }
+        
+        @keyframes pulse {
+            from { opacity: 0.7; }
+            to { opacity: 1; }
+        }
+        
+        @keyframes fadeIn {
+            from { opacity: 0; transform: scale(0.8); }
+            to { opacity: 1; transform: scale(1); }
+        }
+        
+        .stream-live {
+            border: 3px solid #28a745 !important;
+            box-shadow: 0 0 15px rgba(40, 167, 69, 0.5);
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div class="header">
+            <h1>ESP32-CAM AI Thinker Stream Viewer</h1>
+            <div class="connection-status" id="connectionStatus">Disconnected</div>
+        </div>
+        
+        <div class="controls">
+            <button class="btn-primary" onclick="connect()">Connect</button>
+            <button class="btn-danger" onclick="disconnect()">Disconnect</button>
+            <button class="btn-success" onclick="startStream()">Start Stream</button>
+            <button class="btn-warning" onclick="stopStream()">Stop Stream</button>
+            <button class="btn-primary" onclick="captureFrame()">Capture Frame</button>
+            <button class="btn-primary" onclick="getStatus()">Get Status</button>
+        </div>
+        
+        <div class="stream-container">
+            <div class="face-overlay">
+                <img id="streamImage" src="data:image/svg+xml;base64,PHN2ZyB3aWR0aD0iNjQwIiBoZWlnaHQ9IjQ4MCIgeG1sbnM9Imh0dHA6Ly93d3cudzMub3JnLzIwMDAvc3ZnIj4KICA8cmVjdCB3aWR0aD0iMTAwJSIgaGVpZ2h0PSIxMDAlIiBmaWxsPSIjZGRkIi8+CiAgPHRleHQgeD0iNTAlIiB5PSI1MCUiIGZvbnQtZmFtaWx5PSJBcmlhbCwgc2Fucy1zZXJpZiIgZm9udC1zaXplPSIxOCIgZmlsbD0iIzk5OSIgdGV4dC1hbmNob3I9Im1pZGRsZSIgZHk9Ii4zZW0iPkNvbm5lY3RpbmcgdG8gRVNQMzItQ0FNPC90ZXh0Pgo8L3N2Zz4K" alt="Camera Stream">
+                <div id="faceBoxes"></div>
+                <div id="faceDetectionIndicator" class="face-detection-indicator">Face Detection Active</div>
+            </div>
+        </div>
+        
+        <div class="status">
+            <div class="status-item">
+                <h4>Connection</h4>
+                <p>Status: <span id="wsStatus">Disconnected</span></p>
+                <p>URL: <span id="wsUrl">Not set</span></p>
+            </div>
+            
+            <div class="status-item">
+                <h4>Streaming</h4>
+                <p>Active: <span id="streamStatus">No</span></p>
+                <p>FPS: <span id="streamFps">0</span></p>
+                <p>Frames: <span id="frameCount">0</span></p>
+            </div>
+            
+            <div class="status-item">
+                <h4>Face Detection</h4>
+                <p>Enabled: <span id="faceDetectionStatus">Unknown</span></p>
+                <p>Faces: <span id="detectedFaces">0</span></p>
+            </div>
+            
+            <div class="status-item">
+                <h4>System</h4>
+                <p>Heap: <span id="heapMemory">Unknown</span></p>
+                <p>PSRAM: <span id="psramMemory">Unknown</span></p>
+            </div>
+        </div>
+        
+        <div class="log" id="log"></div>
+    </div>
+
+    <script>
+        let ws = null;
+        let frameChunks = {};
+        let frameCount = 0;
+        let lastFrameTime = 0;
+        let fpsCounter = 0;
+        
+        // Configuration - Auto-detect ESP32 IP or use default
+        let ESP32_IP = window.location.hostname || '192.168.1.100'; // Use current host or fallback
+        const WS_PORT = '8080';
+        
+        function log(message) {
+            const logElement = document.getElementById('log');
+            const timestamp = new Date().toLocaleTimeString();
+            logElement.innerHTML += `[${timestamp}] ${message}\n`;
+            logElement.scrollTop = logElement.scrollHeight;
+        }
+        
+        function updateConnectionStatus(connected) {
+            const statusElement = document.getElementById('connectionStatus');
+            const wsStatusElement = document.getElementById('wsStatus');
+            
+            if (connected) {
+                statusElement.textContent = 'Connected';
+                statusElement.className = 'connection-status connected';
+                wsStatusElement.textContent = 'Connected';
+            } else {
+                statusElement.textContent = 'Disconnected';
+                statusElement.className = 'connection-status disconnected';
+                wsStatusElement.textContent = 'Disconnected';
+            }
+        }
+        
+        function connect() {
+            if (ws && ws.readyState === WebSocket.OPEN) {
+                log('Already connected');
+                return;
+            }
+            
+            const wsUrl = `ws://${ESP32_IP}:${WS_PORT}`;
+            document.getElementById('wsUrl').textContent = wsUrl;
+            
+            log(`Connecting to ${wsUrl}...`);
+            ws = new WebSocket(wsUrl);
+            
+            ws.onopen = function(event) {
+                log('WebSocket connected');
+                updateConnectionStatus(true);
+            };
+            
+            ws.onmessage = function(event) {
+                try {
+                    const data = JSON.parse(event.data);
+                    handleMessage(data);
+                } catch (e) {
+                    log(`Error parsing message: ${e}`);
+                }
+            };
+            
+            ws.onclose = function(event) {
+                log('WebSocket disconnected');
+                updateConnectionStatus(false);
+            };
+            
+            ws.onerror = function(error) {
+                log(`WebSocket error: ${error}`);
+                updateConnectionStatus(false);
+            };
+        }
+        
+        function disconnect() {
+            if (ws) {
+                ws.close();
+                ws = null;
+                updateConnectionStatus(false);
+                log('Disconnected');
+            }
+        }
+        
+        function sendCommand(command, params = {}) {
+            if (!ws || ws.readyState !== WebSocket.OPEN) {
+                log('Not connected to WebSocket');
+                return;
+            }
+            
+            const message = {
+                command: command,
+                ...params
+            };
+            
+            ws.send(JSON.stringify(message));
+            log(`Sent command: ${command}`);
+        }
+        
+        function startStream() {
+            sendCommand('start_stream');
+        }
+        
+        function stopStream() {
+            sendCommand('stop_stream');
+            document.getElementById('streamStatus').textContent = 'No';
+            document.getElementById('streamFps').textContent = '0';
+        }
+        
+        function captureFrame() {
+            sendCommand('capture_frame');
+        }
+        
+        function getStatus() {
+            sendCommand('get_status');
+        }
+        
+        function handleMessage(data) {
+            switch (data.type) {
+                case 'welcome':
+                    log(`Welcome: ${data.message}`);
+                    document.getElementById('streamStatus').textContent = data.streaming ? 'Yes' : 'No';
+                    document.getElementById('faceDetectionStatus').textContent = data.face_detection ? 'Yes' : 'No';
+                    break;
+                    
+                case 'frame':
+                    handleFrame(data);
+                    break;
+                    
+                case 'command_response':
+                    log(`Response: ${data.message}`);
+                    if (data.command === 'get_status' && data.success) {
+                        updateSystemStatus(data);
+                    }
+                    break;
+                    
+                case 'face_detection':
+                    handleFaceDetection(data);
+                    break;
+                    
+                default:
+                    log(`Unknown message type: ${data.type}`);
+            }
+        }
+        
+        function handleFrame(data) {
+            const frameId = data.timestamp;
+            
+            if (data.total_chunks === 1) {
+                // Single chunk frame
+                displayImage(data.image);
+            } else {
+                // Multi-chunk frame
+                if (!frameChunks[frameId]) {
+                    frameChunks[frameId] = {
+                        chunks: new Array(data.total_chunks),
+                        received: 0
+                    };
+                }
+                
+                frameChunks[frameId].chunks[data.chunk] = data.image;
+                frameChunks[frameId].received++;
+                
+                if (frameChunks[frameId].received === data.total_chunks) {
+                    // All chunks received, combine them
+                    const completeImage = frameChunks[frameId].chunks.join('');
+                    displayImage(completeImage);
+                    delete frameChunks[frameId];
+                }
+            }
+            
+            updateFPS();
+        }
+        
+        function displayImage(base64Data) {
+            const img = document.getElementById('streamImage');
+            img.src = `data:image/jpeg;base64,${base64Data}`;
+            img.classList.add('stream-live');
+            
+            frameCount++;
+            document.getElementById('frameCount').textContent = frameCount;
+            document.getElementById('streamStatus').textContent = 'Yes';
+        }
+        
+        function updateFPS() {
+            const now = Date.now();
+            if (lastFrameTime > 0) {
+                const timeDiff = now - lastFrameTime;
+                const fps = Math.round(1000 / timeDiff);
+                document.getElementById('streamFps').textContent = fps;
+            }
+            lastFrameTime = now;
+        }
+        
+        function handleFaceDetection(data) {
+            document.getElementById('detectedFaces').textContent = data.detected_faces;
+            
+            // Show/hide face detection indicator
+            const indicator = document.getElementById('faceDetectionIndicator');
+            if (data.detected_faces > 0) {
+                indicator.classList.add('active');
+                log(`Face detection: ${data.detected_faces} face(s) detected`);
+            } else {
+                indicator.classList.remove('active');
+            }
+            
+            drawFaceBoxes(data.faces);
+        }
+        
+        function drawFaceBoxes(faces) {
+            const faceBoxesContainer = document.getElementById('faceBoxes');
+            faceBoxesContainer.innerHTML = '';
+            
+            if (!faces || faces.length === 0) return;
+            
+            const img = document.getElementById('streamImage');
+            const imgRect = img.getBoundingClientRect();
+            
+            // Wait for image to load if needed
+            if (img.naturalWidth === 0 || img.naturalHeight === 0) {
+                setTimeout(() => drawFaceBoxes(faces), 100);
+                return;
+            }
+            
+            faces.forEach((face, index) => {
+                const faceBox = document.createElement('div');
+                faceBox.className = 'face-box';
+                
+                // Scale face coordinates to image display size
+                const scaleX = imgRect.width / img.naturalWidth;
+                const scaleY = imgRect.height / img.naturalHeight;
+                
+                const left = face.x * scaleX;
+                const top = face.y * scaleY;
+                const width = face.width * scaleX;
+                const height = face.height * scaleY;
+                
+                faceBox.style.left = `${left}px`;
+                faceBox.style.top = `${top}px`;
+                faceBox.style.width = `${width}px`;
+                faceBox.style.height = `${height}px`;
+                
+                const faceInfo = document.createElement('div');
+                faceInfo.className = 'face-info';
+                faceInfo.textContent = `Face ${index + 1} (${Math.round(face.confidence * 100)}%)`;
+                faceBox.appendChild(faceInfo);
+                
+                faceBoxesContainer.appendChild(faceBox);
+                
+                // Add a subtle animation effect
+                faceBox.style.animation = 'fadeIn 0.3s ease-in';
+            });
+        }
+        
+        function updateSystemStatus(data) {
+            if (data.heap !== undefined) {
+                document.getElementById('heapMemory').textContent = `${Math.round(data.heap / 1024)} KB`;
+            }
+            if (data.psram !== undefined) {
+                document.getElementById('psramMemory').textContent = `${Math.round(data.psram / 1024)} KB`;
+            }
+            if (data.streaming !== undefined) {
+                document.getElementById('streamStatus').textContent = data.streaming ? 'Yes' : 'No';
+            }
+            if (data.face_detection !== undefined) {
+                document.getElementById('faceDetectionStatus').textContent = data.face_detection ? 'Yes' : 'No';
+            }
+            if (data.detected_faces !== undefined) {
+                document.getElementById('detectedFaces').textContent = data.detected_faces;
+            }
+        }
+        
+        // Auto-connect on page load
+        window.onload = function() {
+            log('ESP32-CAM Stream Viewer loaded');
+            
+            // Auto-detect IP if we're served from the ESP32
+            if (window.location.hostname && window.location.hostname !== 'localhost' && window.location.hostname !== '127.0.0.1') {
+                ESP32_IP = window.location.hostname;
+                log(`Auto-detected ESP32 IP: ${ESP32_IP}`);
+            } else {
+                log(`Using fallback IP: ${ESP32_IP} - Update this in the script if needed`);
+            }
+            
+            // Auto-connect after a short delay
+            setTimeout(() => {
+                log('Auto-connecting to ESP32-CAM...');
+                connect();
+            }, 1000);
+        };
+        
+        // Handle window resize for face box scaling
+        window.addEventListener('resize', function() {
+            // Clear face boxes on resize - they'll be redrawn with next detection
+            document.getElementById('faceBoxes').innerHTML = '';
+        });
+    </script>
+</body>
+</html>
