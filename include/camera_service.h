@@ -29,5 +29,6 @@ bool initCamera();
 void cameraWorkerTask(void* parameter);
 
 extern volatile int imageCounter;
+extern bool STREAM_ON;
 
 #endif // CAMERA_SERVICE_H

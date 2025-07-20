@@ -1,108 +1,123 @@
 #include <Arduino.h>
-
 #include <freertos/FreeRTOS.h>
 #include <freertos/task.h>
 #include <freertos/semphr.h>
 #include "camera_service.h"
+#include "mqtt_service.h"
+#include "rtsp_service.h"
 
 // Task handles
-TaskHandle_t worker1Handle = NULL;
-TaskHandle_t worker2Handle = NULL;
-TaskHandle_t worker3Handle = NULL;
-
-
-volatile int syncCounter = 0;
-
-
-
-// Worker 2 Task
-void worker2Task(void* parameter) {
-    Serial.println("Worker 2 started");
-    while (true) {
-        syncCounter++;
-        Serial.printf("[ASYNC %d] Worker 2: Processing task at %lu ms\n", syncCounter, millis());
-        vTaskDelay(pdMS_TO_TICKS(150));
-        Serial.printf("[ASYNC %d] Worker 2: Task completed\n", syncCounter);
-        vTaskDelay(pdMS_TO_TICKS(1000));
-    }
-}
-
-// Worker 3 Task
-void worker3Task(void* parameter) {
-    Serial.println("Worker 3 started");
-    while (true) {
-        syncCounter++;
-        Serial.printf("[ASYNC %d] Worker 3: Processing task at %lu ms\n", syncCounter, millis());
-        vTaskDelay(pdMS_TO_TICKS(200));
-        Serial.printf("[ASYNC %d] Worker 3: Task completed\n", syncCounter);
-        vTaskDelay(pdMS_TO_TICKS(1000));
-    }
-}
+TaskHandle_t mqttWorkerHandle = NULL;
+TaskHandle_t cameraWorkerHandle = NULL;
+TaskHandle_t rtspWorkerHandle = NULL;
 
 void setup() {
     Serial.begin(115200);
-    Serial.println("\n=== RI1 ESP32-CAM initializing ===");
+    Serial.println("\n=== ESP32-CAM Multi-Worker System ===");
+    
+    // Display chip information
     uint64_t chipid = ESP.getEfuseMac();
     Serial.printf("Chip ID (Efuse MAC): %04X\n", (uint32_t)(chipid >> 32));
     Serial.printf("MAC Address: %012llX\n", chipid);
-    // Initialize camera
-    Serial.println("Initializing camera...");
+    Serial.printf("Free heap: %d bytes\n", ESP.getFreeHeap());
+    Serial.printf("Free PSRAM: %d bytes\n", ESP.getFreePsram());
+    
+    // Initialize camera first
+    Serial.println("\nInitializing camera...");
     if (!initCamera()) {
         Serial.println("ERROR: Camera initialization failed!");
-        while(1);
+        Serial.println("System cannot continue without camera. Restarting in 5 seconds...");
+        delay(5000);
+        ESP.restart();
     }
-    Serial.println("Starting async worker tasks...");
-    // Create Worker 1 (Camera)
+    Serial.println("Camera initialized successfully!");
+    
+    Serial.println("\nStarting worker tasks...");
+    
+    // Create Worker 1: MQTT Listener
+    Serial.println("Creating MQTT Worker (Worker 1)...");
     xTaskCreatePinnedToCore(
-        cameraWorkerTask,      // Task function
-        "Worker1_Camera",     // Task name
-        4096,                 // Stack size
-        NULL,                 // No sync semaphore needed
-        2,                    // Priority
-        &worker1Handle,       // Task handle
-        0                     // Core (0 or 1)
+        mqttWorkerTask,           // Task function
+        "Worker1_MQTT",           // Task name
+        8192,                     // Stack size (increased for WiFi/MQTT)
+        NULL,                     // Parameters
+        3,                        // Priority (highest - for connectivity)
+        &mqttWorkerHandle,        // Task handle
+        0                         // Core 0
     );
-    // Create Worker 2
+    
+    // Create Worker 2: Camera Handler
+    Serial.println("Creating Camera Worker (Worker 2)...");
     xTaskCreatePinnedToCore(
-        worker2Task,           // Task function
-        "Worker2",             // Task name
-        4096,                  // Stack size
-        NULL,                  // Parameters
-        2,                     // Priority
-        &worker2Handle,        // Task handle
-        1                      // Core (0 or 1)
+        cameraWorkerTask,         // Task function
+        "Worker2_Camera",         // Task name
+        4096,                     // Stack size
+        NULL,                     // Parameters
+        2,                        // Priority (medium)
+        &cameraWorkerHandle,      // Task handle
+        1                         // Core 1
     );
-    // Create Worker 3
-    xTaskCreatePinnedToCore(
-        worker3Task,           // Task function
-        "Worker3",             // Task name
-        4096,                  // Stack size
-        NULL,                  // Parameters
-        2,                     // Priority
-        &worker3Handle,        // Task handle
-        0                      // Core (0 or 1)
-    );
+    
+    // Create Worker 3: RTSP Stream Handler (Optional)
+    // Serial.println("Creating RTSP Worker (Worker 3)...");
+    // xTaskCreatePinnedToCore(
+    //     rtspWorkerTask,           // Task function
+    //     "Worker3_RTSP",           // Task name
+    //     8192,                     // Stack size (increased for network handling)
+    //     NULL,                     // Parameters
+    //     1,                        // Priority (lowest - optional service)
+    //     &rtspWorkerHandle,        // Task handle
+    //     0                         // Core 0
+    // );
+    
     Serial.println("All workers created successfully!");
-    Serial.println("Workers will print async messages...");
+    Serial.println("\nSystem Overview:");
+    Serial.println("- Worker 1 (MQTT): Handles MQTT communication and commands");
+    Serial.println("- Worker 2 (Camera): Captures and processes images");
+    Serial.println("- Worker 3 (RTSP): Provides video streaming (optional)");
+    Serial.println("\nConfiguration needed:");
+    Serial.println("- Update WiFi credentials in mqtt_service.h");
+    Serial.println("- Update MQTT server details in mqtt_service.h");
+    Serial.println("=====================================\n");
 }
 
 void loop() {
-    // Main loop - monitor the system and camera
-    static unsigned long lastPrint = 0;
+    // Main loop - system monitoring and status reporting
+    static unsigned long lastSystemReport = 0;
     
-    if (millis() - lastPrint > 5000) {
-        Serial.printf("\n=== System Status at %lu ms ===\n", millis());
+    if (millis() - lastSystemReport > 10000) { // Every 10 seconds
+        Serial.printf("\n=== System Status Report at %lu ms ===\n", millis());
+        
+        // Memory status
         Serial.printf("Free heap: %d bytes\n", ESP.getFreeHeap());
         Serial.printf("Free PSRAM: %d bytes\n", ESP.getFreePsram());
-        Serial.printf("Sync counter: %d\n", syncCounter);
         Serial.printf("Images captured: %d\n", imageCounter);
-        Serial.printf("Worker 1 (Camera): %s\n", worker1Handle ? "Running" : "Stopped");
-        Serial.printf("Worker 2 status: %s\n", worker2Handle ? "Running" : "Stopped");
-        Serial.printf("Worker 3 status: %s\n", worker3Handle ? "Running" : "Stopped");
-        Serial.println("==============================\n");
         
-        lastPrint = millis();
+        // Worker status
+        Serial.printf("Worker 1 (MQTT): %s\n", 
+                     mqttWorkerHandle ? "Running" : "Stopped");
+        Serial.printf("Worker 2 (Camera): %s\n", 
+                     cameraWorkerHandle ? "Running" : "Stopped");
+        Serial.printf("Worker 3 (RTSP): %s\n", 
+                     rtspWorkerHandle ? "Running" : "Stopped");
+        
+        // Connectivity status
+        Serial.printf("WiFi Status: %s\n", 
+                     wifiConnected ? "Connected" : "Disconnected");
+        Serial.printf("MQTT Status: %s\n", 
+                     mqttConnected ? "Connected" : "Disconnected");
+        Serial.printf("RTSP Service: %s\n", 
+                     rtspEnabled ? "Enabled" : "Disabled");
+        Serial.printf("Active RTSP Clients: %d\n", activeClients);
+        
+        Serial.println("=========================================\n");
+        lastSystemReport = millis();
     }
     
-    delay(100);
+    // Check for system health and restart if needed
+    if (ESP.getFreeHeap() < 10000) {
+        Serial.println("WARNING: Low memory detected!");
+    }
+    
+    delay(1000); // Main loop runs every second
 }

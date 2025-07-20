@@ -1,20 +1,32 @@
-# ESP32-CAM AI Thinker Project
+# ESP32-CAM Multi-Worker System
 
-This project implements a comprehensive ESP32-CAM AI Thinker solution with three main execution loops:
+This project implements a comprehensive ESP32-CAM solution with three dedicated worker tasks:
 
-1. **MQTT Command Loop** - Subscribes to MQTT topics for remote control
-2. **Camera/WebSocket Streaming Loop** - Handles real-time video streaming
-3. **Face Detection Loop** - Performs continuous face detection
+1. **MQTT Worker** - Handles MQTT communication and remote commands
+2. **Camera Worker** - Manages camera operations and image capture  
+3. **RTSP Worker** - Provides optional video streaming via RTSP protocol
 
 ## Features
 
 - 🌐 **WiFi Connectivity** with automatic reconnection
 - 📡 **MQTT Integration** for command and control
-- 🎥 **Real-time WebSocket Streaming** with Base64 encoding
-- 👤 **Face Detection** (basic implementation, can be enhanced with ESP-WHO)
+- 🎥 **RTSP Video Streaming** compatible with standard media players
+- � **Continuous Image Capture** with system monitoring
 - ⚡ **Multi-core Processing** using FreeRTOS tasks
 - 💾 **PSRAM Utilization** for better performance
-- 🔄 **Resource Management** with balanced execution
+- 🔄 **Robust Error Handling** with automatic recovery
+
+## Architecture
+
+### Worker Distribution
+- **Core 0**: MQTT Worker (Priority 3) + RTSP Worker (Priority 1)
+- **Core 1**: Camera Worker (Priority 2)
+
+### Communication Flow
+```
+MQTT Commands → Worker 1 → System Control
+Camera Data → Worker 2 → RTSP Stream → Worker 3 → Clients
+```
 
 ## Hardware Requirements
 
