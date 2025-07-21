@@ -51,14 +51,17 @@ bool initCamera()
     return true;
 }
 
+#include <WiFiClientSecure.h>  // se HTTPS for necessário
+#include "base64.h"            // Biblioteca base64 que você usar
+
+extern volatile int imageCounter;
+extern bool STREAM_ON;
+
 void cameraWorkerTask(void *parameter)
 {
     Serial.println("Worker 2 (Camera) started");
 
     vTaskDelay(pdMS_TO_TICKS(2000));
-
-    WiFiClient streamClient;
-    bool streamConnected = false;
 
     while (true)
     {
@@ -67,113 +70,60 @@ void cameraWorkerTask(void *parameter)
             if (WiFi.status() != WL_CONNECTED)
             {
                 Serial.println("[CAMERA] WiFi not connected, skipping frame upload");
-                if (streamConnected) {
-                    streamClient.stop();
-                    streamConnected = false;
-                }
                 vTaskDelay(pdMS_TO_TICKS(1000));
                 continue;
             }
 
-            // Establish connection if not connected
-            if (!streamConnected || !streamClient.connected())
+            camera_fb_t *fb = esp_camera_fb_get();
+            if (!fb)
             {
-                if (streamConnected) {
-                    streamClient.stop();
-                }
-                
-                Serial.println("[STREAM] Establishing connection to server...");
-                if (streamClient.connect("192.168.4.6", 8080))
-                {
-                    Serial.println("[STREAM] Connected to server - Starting continuous stream");
-                    imageCounter = 0; // Reset frame counter for new stream
-
-                    // Send HTTP headers for continuous multipart stream
-                    streamClient.println("POST /video_stream HTTP/1.1");
-                    streamClient.println("Host: 192.168.15.117");
-                    streamClient.println("Content-Type: multipart/x-mixed-replace; boundary=--frame");
-                    streamClient.println("Connection: keep-alive");
-                    streamClient.println("Cache-Control: no-cache");
-                    streamClient.println();
-                    
-                    streamConnected = true;
-                    Serial.println("[STREAM] Stream headers sent - Ready for continuous streaming");
-                }
-                else
-                {
-                    Serial.println("[STREAM] Failed to connect to server, retrying...");
-                    streamConnected = false;
-                    vTaskDelay(pdMS_TO_TICKS(2000));
-                    continue;
-                }
+                Serial.println("[STREAM] Failed to capture frame, continuing...");
+                vTaskDelay(pdMS_TO_TICKS(50));
+                continue;
             }
 
-            // Send frame if connected
-            if (streamConnected && streamClient.connected())
+            // Conecta, envia frame e desconecta (requisição POST por frame)
+            WiFiClient client;
+            if (!client.connect("192.168.4.6", 8080))
             {
-                camera_fb_t *fb = esp_camera_fb_get();
-                if (fb)
-                {
-                    imageCounter++;
-                    Serial.printf("[STREAM] Sending frame #%d (size: %zu bytes)\n", imageCounter, fb->len);
-                    
-                    // Send multipart boundary and headers
-                    size_t headerBytes = 0;
-                    headerBytes += streamClient.println("----frame");
-                    headerBytes += streamClient.println("Content-Type: image/jpeg");
-                    headerBytes += streamClient.print("Content-Length: ");
-                    headerBytes += streamClient.println(fb->len);
-                    headerBytes += streamClient.println();
-                    
-                    // Send the actual JPEG data
-                    size_t bytesWritten = streamClient.write(fb->buf, fb->len);
-                    streamClient.println();
-                    
-                    if (bytesWritten == fb->len && headerBytes > 0) {
-                        Serial.printf("[STREAM] Frame #%d sent successfully: %zu bytes\n", imageCounter, bytesWritten);
-                    } else {
-                        Serial.printf("[STREAM] Frame #%d send error: wrote %zu/%zu bytes, headers: %zu\n", 
-                                     imageCounter, bytesWritten, fb->len, headerBytes);
-                        streamConnected = false; // Force reconnection
-                    }
-                    
-                    esp_camera_fb_return(fb);
-                }
-                else
-                {
-                    Serial.println("[STREAM] Failed to capture frame, continuing...");
-                }
-                
-                // Check if connection is still alive after sending
-                if (!streamClient.connected()) {
-                    Serial.println("[STREAM] Connection lost after sending frame");
-                    streamConnected = false;
-                }
+                Serial.println("[STREAM] Failed to connect to server");
+                esp_camera_fb_return(fb);
+                vTaskDelay(pdMS_TO_TICKS(2000));
+                continue;
             }
+
+            imageCounter++;
+            Serial.printf("[STREAM] Sending frame #%d (size: %zu bytes)\n", imageCounter, fb->len);
+
+            // Enviar HTTP POST headers
+            client.printf("POST /video_frame/%s HTTP/1.1\r\n", DEVICE_ID);
+            client.printf("Host: 192.168.4.6\r\n");
+            client.printf("Content-Type: image/jpeg\r\n");
+            client.printf("Content-Length: %zu\r\n", fb->len);
+            client.printf("Connection: close\r\n");
+            client.printf("\r\n");
+
+            // Enviar dados JPEG
+            size_t bytesWritten = client.write(fb->buf, fb->len);
+            client.flush();
+
+            if (bytesWritten == fb->len)
+                Serial.printf("[STREAM] Frame #%d sent successfully: %zu bytes\n", imageCounter, bytesWritten);
             else
-            {
-                streamConnected = false;
-                Serial.println("[STREAM] Connection lost, will reconnect...");
-            }
+                Serial.printf("[STREAM] Frame #%d send error: wrote %zu/%zu bytes\n", imageCounter, bytesWritten, fb->len);
+
+            esp_camera_fb_return(fb);
+            client.stop();
+
+            vTaskDelay(pdMS_TO_TICKS(50));  // ~20 FPS
         }
         else
         {
-            // STREAM_ON is false, close connection if open
-            if (streamConnected) {
-                streamClient.stop();
-                streamConnected = false;
-                Serial.println("[STREAM] Stream disabled, connection closed");
-            }
-        }
-
-        // Stream at ~20 FPS when connected, slower when not streaming
-        if (STREAM_ON && streamConnected) {
-            vTaskDelay(pdMS_TO_TICKS(50)); // 20 FPS for active streaming
-        } else {
-            vTaskDelay(pdMS_TO_TICKS(500)); // Slower when not streaming
+            vTaskDelay(pdMS_TO_TICKS(500));
         }
     }
 }
+
 
 // Alternative simple JPEG upload function (uncomment to use instead)
 /*

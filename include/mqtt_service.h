@@ -12,6 +12,7 @@
 // MQTT Configuration
 #define MQTT_SERVER "192.168.4.6"
 #define MQTT_PORT 1883
+
 #define MQTT_CLIENT_ID "ESP32CAM_RI1"
 #define MQTT_TOPIC_SUBSCRIBE "esp32cam/commands"
 #define MQTT_TOPIC_PUBLISH "esp32cam/status"
