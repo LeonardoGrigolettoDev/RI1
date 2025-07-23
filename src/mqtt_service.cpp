@@ -2,45 +2,10 @@
 
 WiFiClient wifiClient;
 PubSubClient mqttClient(wifiClient);
-bool wifiConnected = false;
 bool mqttConnected = false;
 
-bool initWiFi() {
-    Serial.printf("Connecting to WiFi network: %s\n", WIFI_SSID);
-    WiFi.begin(WIFI_SSID, WIFI_PASSWORD);
-    
-    int attempts = 0;
-    // Tenta indefinidamente até conseguir conexão
-    while (WiFi.status() != WL_CONNECTED) {
-        delay(500);
-        Serial.print(".");
-        attempts++;
-        
-        // A cada 20 tentativas (10 segundos), mostra progresso
-        if (attempts % 20 == 0) {
-            Serial.printf("\n[WiFi] Tentativa %d - Status: %d\n", attempts, WiFi.status());
-            Serial.printf("[WiFi] Continuando tentativas de conexão...\n");
-        }
-        
-        // A cada 60 tentativas (30 segundos), reinicia o WiFi
-        if (attempts % 60 == 0) {
-            Serial.println("\n[WiFi] Reiniciando WiFi após 30 segundos...");
-            WiFi.disconnect();
-            delay(1000);
-            WiFi.begin(WIFI_SSID, WIFI_PASSWORD);
-        }
-    }
-    
-    wifiConnected = true;
-    Serial.println();
-    Serial.printf("WiFi conectado com sucesso!\n");
-    Serial.printf("IP address: %s\n", WiFi.localIP().toString().c_str());
-    Serial.printf("Signal strength: %d dBm\n", WiFi.RSSI());
-    return true;
-}
-
 bool initMQTT() {
-    if (!wifiConnected) {
+    if (!isWiFiConnected()) {
         Serial.println("Cannot initialize MQTT: WiFi not connected");
         return false;
     }
@@ -79,7 +44,7 @@ void mqttCallback(char* topic, byte* payload, unsigned int length) {
 }
 
 void reconnectMQTT() {
-    while (!mqttClient.connected() && wifiConnected) {
+    while (!mqttClient.connected() && isWiFiConnected()) {
         Serial.print("Attempting MQTT connection...");
         if (mqttClient.connect(MQTT_CLIENT_ID)) {
             Serial.println(" connected!");
@@ -120,17 +85,17 @@ void mqttWorkerTask(void* parameter) {
     
     while (true) {
         // Check WiFi connection
-        if (WiFi.status() != WL_CONNECTED) {
-            wifiConnected = false;
+        if (!isWiFiConnected()) {
             mqttConnected = false;
             Serial.println("[MQTT] WiFi disconnected, attempting reconnection...");
-            if (initWiFi()) {
+            checkWiFiConnection();
+            if (isWiFiConnected()) {
                 initMQTT();
             }
         }
         
         // Check MQTT connection
-        if (wifiConnected && !mqttClient.connected()) {
+        if (isWiFiConnected() && !mqttClient.connected()) {
             mqttConnected = false;
             Serial.println("[MQTT] MQTT disconnected, attempting reconnection...");
             reconnectMQTT();

@@ -1,5 +1,4 @@
 #include "camera_service.h"
-#include "rtsp_service.h"
 
 volatile int imageCounter = 0;
 bool STREAM_ON = true;
@@ -84,7 +83,7 @@ void cameraWorkerTask(void *parameter)
 
             // Conecta, envia frame e desconecta (requisição POST por frame)
             WiFiClient client;
-            if (!client.connect("192.168.4.6", 8080))
+            if (!client.connect("192.168.4.2", 8080))
             {
                 Serial.println("[STREAM] Failed to connect to server");
                 esp_camera_fb_return(fb);
@@ -115,7 +114,7 @@ void cameraWorkerTask(void *parameter)
             esp_camera_fb_return(fb);
             client.stop();
 
-            vTaskDelay(pdMS_TO_TICKS(50));  // ~20 FPS
+            vTaskDelay(pdMS_TO_TICKS(100));  
         }
         else
         {
@@ -124,22 +123,3 @@ void cameraWorkerTask(void *parameter)
     }
 }
 
-
-// Alternative simple JPEG upload function (uncomment to use instead)
-/*
-void sendSingleJPEG(WiFiClient& client, camera_fb_t* fb) {
-    if (!fb) return;
-    
-    Serial.printf("[SIMPLE] Sending single JPEG (%zu bytes)\n", fb->len);
-    
-    client.println("POST /upload HTTP/1.1");
-    client.println("Host: 192.168.4.8");
-    client.println("Content-Type: image/jpeg");
-    client.print("Content-Length: ");
-    client.println(fb->len);
-    client.println();
-    
-    size_t bytesWritten = client.write(fb->buf, fb->len);
-    Serial.printf("[SIMPLE] Sent %zu/%zu bytes\n", bytesWritten, fb->len);
-}
-*/

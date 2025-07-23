@@ -4,7 +4,7 @@
 #include <freertos/semphr.h>
 #include "camera_service.h"
 #include "mqtt_service.h"
-#include "rtsp_service.h"
+#include "wifi_service.h"
 
 // Task handles
 TaskHandle_t mqttWorkerHandle = NULL;
@@ -103,12 +103,9 @@ void loop() {
         
         // Connectivity status
         Serial.printf("WiFi Status: %s\n", 
-                     wifiConnected ? "Connected" : "Disconnected");
+                     isWiFiConnected() ? "Connected" : "Disconnected");
         Serial.printf("MQTT Status: %s\n", 
                      mqttConnected ? "Connected" : "Disconnected");
-        Serial.printf("RTSP Service: %s\n", 
-                     rtspEnabled ? "Enabled" : "Disabled");
-        Serial.printf("Active RTSP Clients: %d\n", activeClients);
         
         Serial.println("=========================================\n");
         lastSystemReport = millis();
